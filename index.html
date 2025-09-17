@@ -13,7 +13,7 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #ffc200 0%, #ffc200 100%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
         }
@@ -111,7 +111,7 @@
         }
         
         .btn:hover {
-            background: #5a6fd8;
+            background: #e6ac00;
             transform: translateY(-2px);
         }
         
@@ -119,6 +119,54 @@
             background: #ccc;
             cursor: not-allowed;
             transform: none;
+        }
+        
+        .filter-row {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e9ecef;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            min-width: 150px;
+        }
+        
+        .filter-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        .filter-select {
+            padding: 8px 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 15px;
+            font-size: 0.9em;
+            background: white;
+            transition: border-color 0.3s ease;
+        }
+        
+        .filter-select:focus {
+            outline: none;
+            border-color: #ffc200;
+        }
+        
+        .clear-filters-btn {
+            background: #6c757d;
+            font-size: 0.9em;
+            padding: 8px 15px;
+            margin-top: 20px;
+        }
+        
+        .clear-filters-btn:hover {
+            background: #5a6268;
         }
         
         .results {
@@ -230,8 +278,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔍 Recherche Yakamedia</h1>
-            <p>Recherchez dans les ressources de Yakamédia</p>
+            <h1>🔍 Yakamedia Search</h1>
+            <p>Recherchez dans les ressources Mediasheets et Universes</p>
         </div>
         
         <div class="controls">
@@ -245,6 +293,28 @@
                 <button class="btn" id="searchBtn">Rechercher</button>
                 <button class="btn" id="listAllBtn">Lister tout</button>
                 <button class="btn" id="exportBtn" style="display: none;">Exporter CSV</button>
+                
+                <div class="filter-row">
+                    <div class="filter-group">
+                        <label class="filter-label">Auteur</label>
+                        <select class="filter-select" id="authorFilter">
+                            <option value="">Tous les auteurs</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Catégorie</label>
+                        <select class="filter-select" id="categoryFilter">
+                            <option value="">Toutes les catégories</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Sous-catégorie</label>
+                        <select class="filter-select" id="subcategoryFilter">
+                            <option value="">Toutes les sous-catégories</option>
+                        </select>
+                    </div>
+                    <button class="btn clear-filters-btn" id="clearFiltersBtn">Effacer filtres</button>
+                </div>
             </div>
         </div>
         
@@ -283,6 +353,8 @@
                 btn.classList.add('active');
                 currentIndex = btn.dataset.index;
                 clearResults();
+                clearFilters();
+                loadFiltersData(); // Charger les données pour les filtres
             });
         });
 
@@ -297,6 +369,12 @@
         
         // Gestion de l'export CSV
         exportBtn.addEventListener('click', exportToCSV);
+        
+        // Gestion des filtres
+        authorFilter.addEventListener('change', applyFilters);
+        categoryFilter.addEventListener('change', applyFilters);
+        subcategoryFilter.addEventListener('change', applyFilters);
+        clearFiltersBtn.addEventListener('click', clearFilters);
 
         // Fonction de recherche
         async function performSearch() {
@@ -337,6 +415,10 @@
                 const data = await response.json();
                 currentResults = data.hits || data.results || [];
                 totalResults = data.estimatedTotalHits || data.totalHits || currentResults.length;
+                
+                // Alimenter les filtres avec les nouvelles données
+                populateFilters(currentResults);
+                
                 displayResults(data, `Résultats de recherche pour "${query}"`);
                 showExportButton();
             } catch (error) {
@@ -385,8 +467,13 @@
                 if (offset === 0) {
                     currentResults = data.results || [];
                     totalResults = data.total || currentResults.length;
+                    // Alimenter les filtres avec les nouvelles données
+                    populateFilters(currentResults);
                 } else {
-                    currentResults = [...currentResults, ...(data.results || [])];
+                    const newResults = data.results || [];
+                    currentResults = [...currentResults, ...newResults];
+                    // Mettre à jour les filtres avec toutes les données accumulées
+                    populateFilters(currentResults);
                 }
                 
                 displayResultsWithPagination(data, offset, limit);
@@ -493,6 +580,173 @@
                 showError(`Erreur lors du chargement complet: ${error.message}`);
             } finally {
                 enableButtons();
+            }
+        }
+
+        // Charger les données pour alimenter les filtres
+        async function loadFiltersData() {
+            try {
+                // Charger un échantillon pour extraire les filtres possibles
+                const url = `${API_CONFIG.baseURL}/indexes/${currentIndex}/documents?offset=0&limit=100`;
+                let response;
+                try {
+                    response = await fetch(url, {
+                        method: 'GET',
+                        headers: API_CONFIG.headers
+                    });
+                } catch (corsError) {
+                    response = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': API_CONFIG.headers.Authorization
+                        }
+                    });
+                }
+
+                if (response.ok) {
+                    const data = await response.json();
+                    populateFilters(data.results || []);
+                }
+            } catch (error) {
+                console.log('Erreur lors du chargement des données de filtres:', error);
+            }
+        }
+
+        // Alimenter les listes déroulantes des filtres
+        function populateFilters(results) {
+            allAuthors.clear();
+            allCategories.clear();
+            allSubcategories.clear();
+
+            results.forEach(item => {
+                const attrs = item.attributes || {};
+                
+                // Auteurs
+                if (attrs.field_author && Array.isArray(attrs.field_author)) {
+                    attrs.field_author.forEach(author => {
+                        if (author.attributes?.display_name) {
+                            allAuthors.add(author.attributes.display_name);
+                        }
+                    });
+                }
+                
+                // Catégories
+                if (attrs.field_category && Array.isArray(attrs.field_category)) {
+                    attrs.field_category.forEach(cat => {
+                        if (cat.attributes?.name) {
+                            allCategories.add(cat.attributes.name);
+                        }
+                    });
+                }
+                
+                // Sous-catégories
+                if (attrs.field_bafa_category && Array.isArray(attrs.field_bafa_category)) {
+                    attrs.field_bafa_category.forEach(subcat => {
+                        if (subcat.attributes?.name) {
+                            allSubcategories.add(subcat.attributes.name);
+                        }
+                    });
+                }
+            });
+
+            // Mettre à jour les selects
+            updateFilterSelect(authorFilter, Array.from(allAuthors).sort());
+            updateFilterSelect(categoryFilter, Array.from(allCategories).sort());
+            updateFilterSelect(subcategoryFilter, Array.from(allSubcategories).sort());
+        }
+
+        // Mettre à jour un select avec des options
+        function updateFilterSelect(selectElement, options) {
+            // Conserver la première option (Tous...)
+            const firstOption = selectElement.children[0];
+            selectElement.innerHTML = '';
+            selectElement.appendChild(firstOption);
+            
+            // Ajouter les nouvelles options
+            options.forEach(option => {
+                const optionElement = document.createElement('option');
+                optionElement.value = option;
+                optionElement.textContent = option;
+                selectElement.appendChild(optionElement);
+            });
+        }
+
+        // Appliquer les filtres aux résultats actuels
+        function applyFilters() {
+            if (!currentResults.length) return;
+
+            const authorValue = authorFilter.value;
+            const categoryValue = categoryFilter.value;
+            const subcategoryValue = subcategoryFilter.value;
+
+            const filteredResults = currentResults.filter(item => {
+                const attrs = item.attributes || {};
+                
+                // Filtre auteur
+                if (authorValue) {
+                    const authors = attrs.field_author || [];
+                    const hasAuthor = authors.some(author => 
+                        author.attributes?.display_name === authorValue
+                    );
+                    if (!hasAuthor) return false;
+                }
+                
+                // Filtre catégorie
+                if (categoryValue) {
+                    const categories = attrs.field_category || [];
+                    const hasCategory = categories.some(cat => 
+                        cat.attributes?.name === categoryValue
+                    );
+                    if (!hasCategory) return false;
+                }
+                
+                // Filtre sous-catégorie
+                if (subcategoryValue) {
+                    const subcategories = attrs.field_bafa_category || [];
+                    const hasSubcategory = subcategories.some(subcat => 
+                        subcat.attributes?.name === subcategoryValue
+                    );
+                    if (!hasSubcategory) return false;
+                }
+                
+                return true;
+            });
+
+            // Afficher les résultats filtrés
+            displayFilteredResults(filteredResults);
+        }
+
+        // Afficher les résultats filtrés
+        function displayFilteredResults(filteredResults) {
+            const activeFilters = [];
+            if (authorFilter.value) activeFilters.push(`Auteur: ${authorFilter.value}`);
+            if (categoryFilter.value) activeFilters.push(`Catégorie: ${categoryFilter.value}`);
+            if (subcategoryFilter.value) activeFilters.push(`Sous-catégorie: ${subcategoryFilter.value}`);
+            
+            const filterInfo = activeFilters.length > 0 ? ` (Filtres actifs: ${activeFilters.join(', ')})` : '';
+            
+            resultsContainer.innerHTML = `
+                <div class="results-info">
+                    <strong>Résultats filtrés</strong>${filterInfo}<br>
+                    ${filteredResults.length} résultat(s) affiché(s) sur ${currentResults.length} total
+                    dans l'index <em>${currentIndex}</em>
+                </div>
+                <div class="resource-list">
+                    ${filteredResults.map(item => createResourceItem(item)).join('')}
+                </div>
+            `;
+        }
+
+        // Effacer tous les filtres
+        function clearFilters() {
+            authorFilter.selectedIndex = 0;
+            categoryFilter.selectedIndex = 0;
+            subcategoryFilter.selectedIndex = 0;
+            
+            // Réafficher tous les résultats si on en a
+            if (currentResults.length > 0) {
+                const title = isListingAll ? 'Liste complète des documents' : 'Résultats de recherche';
+                displayResults({ results: currentResults, total: totalResults }, title);
             }
         }
 
@@ -806,8 +1060,11 @@
             exportBtn.disabled = false;
         }
 
-        // Message initial
+        // Message initial et initialisation
         resultsContainer.innerHTML = '<div class="loading">🚀 Prêt à rechercher ! Utilisez les boutons ci-dessus pour commencer.</div>';
+        
+        // Charger les données de filtres au démarrage
+        loadFiltersData();
     </script>
 </body>
 </html>
